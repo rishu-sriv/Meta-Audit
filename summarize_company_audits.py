@@ -16,6 +16,76 @@ def json_stem(brand_name: str) -> str:
     return brand_name.replace("/", "_").replace(" ", "_")
 
 
+# Words too generic to prove a Meta page belongs to this CSV row.
+_PAGE_MATCH_STOPWORDS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "llc",
+        "ltd",
+        "inc",
+        "pvt",
+        "com",
+        "co",
+        "online",
+        "shop",
+        "store",
+        "official",
+        "india",
+        "global",
+    }
+)
+
+
+def _alphanumeric_compact(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+def meta_library_page_matches_brand(company_name: str, payload: dict) -> bool:
+    """
+    True if search_information.page looks like the same brand as company_name.
+    Prevents writing audits when Playwright resolved the wrong Meta page (e.g. Noise → Spotify).
+    """
+    info = payload.get("search_information")
+    if not isinstance(info, dict):
+        return False
+    page = info.get("page")
+    if not isinstance(page, dict):
+        return False
+    lib_name = page.get("name")
+    lib_id = page.get("id")
+    if not isinstance(lib_name, str) or not lib_name.strip():
+        return False
+    if lib_name.strip().lower() == "unknown":
+        return False
+    if lib_id is None or str(lib_id).strip() == "" or str(lib_id).strip().lower() == "unknown":
+        return False
+
+    c_compact = _alphanumeric_compact(company_name)
+    p_compact = _alphanumeric_compact(lib_name)
+    if len(c_compact) < 2:
+        return False
+
+    if len(c_compact) >= 3 and (c_compact in p_compact or p_compact in c_compact):
+        return True
+
+    p_lower = lib_name.lower()
+    tokens = [
+        t.lower()
+        for t in re.findall(r"[A-Za-z]{3,}", company_name or "")
+        if t.lower() not in _PAGE_MATCH_STOPWORDS
+    ]
+    if not tokens:
+        return len(c_compact) >= 2 and c_compact in p_compact
+
+    hits = sum(1 for t in tokens if t in p_lower or _alphanumeric_compact(t) in p_compact)
+    need = max(1, (len(tokens) + 1) // 2)
+    return hits >= need
+
+
 def company_name_for_json_path(path: Path, ordered_brands: list[str]) -> str:
     stem = path.stem
     for b in ordered_brands:

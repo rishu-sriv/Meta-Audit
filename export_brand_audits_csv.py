@@ -21,6 +21,7 @@ from summarize_company_audits import (
     flight_window,
     json_stem,
     load_brands_in_order,
+    meta_library_page_matches_brand,
     summarize_formats,
     summarize_platforms,
 )
@@ -213,6 +214,9 @@ def main() -> None:
                 continue
             with path.open("r", encoding="utf-8") as jf:
                 payload = json.load(jf)
+            if not meta_library_page_matches_brand(company_name, payload):
+                w.writerow([company_name, ""])
+                continue
             audit = build_audit_summary(company_name, payload)
             w.writerow([company_name, audit])
 
