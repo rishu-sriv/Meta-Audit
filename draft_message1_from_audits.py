@@ -88,40 +88,6 @@ Intelligence Debrief: {intelligence_debrief}
 Audit Summary: {audit_summary}
 """.strip()
 
-
-def build_message_with_openai(
-    recipient_name: str,
-    merchant_name: str,
-    audit_summary: str,
-    intelligence_debrief: str,
-    model: str,
-    api_key: str,
-) -> str:
-    system = (
-        "You draft B2B outreach messages in strict fixed structure. "
-        "Do not add markdown, labels, or explanation. Output only the final message text."
-    )
-    user = _build_prompt(recipient_name, merchant_name, audit_summary, intelligence_debrief)
-
-    resp = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model,
-            "temperature": 0.4,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        },
-        timeout=45,
-    )
-    resp.raise_for_status()
-    data: dict[str, Any] = resp.json()
-    text = data["choices"][0]["message"]["content"].strip()
-    return text
-
-
 def build_message_with_gemini(
     recipient_name: str,
     merchant_name: str,
@@ -164,8 +130,6 @@ def main() -> None:
     parser.add_argument("--audit-column", default="Audit Summary")
     parser.add_argument("--debrief-column", default="Intelligence Debrief")
     parser.add_argument("--message-column", default="Message_1")
-    parser.add_argument("--ai-provider", choices=["openai", "gemini"], default="gemini")
-    parser.add_argument("--openai-model", default="gpt-4o-mini")
     parser.add_argument("--gemini-model", default="gemini-1.5-flash")
     args = parser.parse_args()
 
@@ -197,12 +161,9 @@ def main() -> None:
     drafted_generic_no_audit = 0
     ai_failed = 0
 
-    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip()
-    if args.ai_provider == "openai" and not openai_key:
-        raise SystemExit("Set OPENAI_API_KEY to use --ai-provider openai.")
-    if args.ai_provider == "gemini" and not gemini_key:
-        raise SystemExit("Set GEMINI_API_KEY or GOOGLE_API_KEY to use --ai-provider gemini.")
+    if not gemini_key:
+        raise SystemExit("Set GEMINI_API_KEY or GOOGLE_API_KEY.")
 
     for row in rows:
         company = _clean(row.get(args.company_column, ""))
@@ -223,24 +184,14 @@ def main() -> None:
             skipped_missing += 1
             continue
         try:
-            if args.ai_provider == "openai":
-                row[args.message_column] = build_message_with_openai(
-                    recipient_name=recipient,
-                    merchant_name=company,
-                    audit_summary=audit if not no_audit_mode else "NO_AUDIT_AVAILABLE",
-                    intelligence_debrief=debrief or f"I went through {company}'s ads this week.",
-                    model=args.openai_model,
-                    api_key=openai_key,
-                )
-            else:
-                row[args.message_column] = build_message_with_gemini(
-                    recipient_name=recipient,
-                    merchant_name=company,
-                    audit_summary=audit if not no_audit_mode else "NO_AUDIT_AVAILABLE",
-                    intelligence_debrief=debrief or f"I went through {company}'s ads this week.",
-                    model=args.gemini_model,
-                    api_key=gemini_key,
-                )
+            row[args.message_column] = build_message_with_gemini(
+                recipient_name=recipient,
+                merchant_name=company,
+                audit_summary=audit if not no_audit_mode else "NO_AUDIT_AVAILABLE",
+                intelligence_debrief=debrief or f"I went through {company}'s ads this week.",
+                model=args.gemini_model,
+                api_key=gemini_key,
+            )
             row[f"{args.message_column}_error"] = ""
         except Exception as exc:
             ai_failed += 1
